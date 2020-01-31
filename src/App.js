@@ -1,5 +1,5 @@
 /**
- * Sample React Native App
+ * RC Plane Control APP
  * https://github.com/facebook/react-native
  *
  * @format
@@ -7,22 +7,28 @@
  */
 
 import React, {Component} from 'react';
-import {DeviceEventEmitter, Image, ScrollView, Text, TouchableOpacity, View} from 'react-native';
+import {AppState, DeviceEventEmitter, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import globalStyle from './styles/globalStyle'
 import AxisPad from '../react-native-axis-pad/';
 import ConnectionManager from './ConnectionManager';
 import DialogInput from 'react-native-dialog-input';
 import Orientation from 'react-native-orientation';
+import WifiManager from "react-native-wifi-reborn";
 
+const WifiSSID = "RC-Plane";
 const servers = [
     {
-        host: "192.168.0.100",
+        host: "192.168.4.1",
         port: "8888",
         reConnect: true
     }
 ];
 ConnectionManager.setServers(servers);
 
+
+const pwmVal = (x) => {
+    return Math.floor((1 + x) * 128) / 256;
+};
 
 export default class App extends Component {
 
@@ -58,6 +64,7 @@ export default class App extends Component {
         usePitch: true,
         status: "",
         gear: 1,
+        appState: "",
         isHostInputVisible: false
     };
 
@@ -84,19 +91,19 @@ export default class App extends Component {
         })
     };
 
-    _setNewHost = (input)=>{
+    _setNewHost = (input) => {
         this.setState({
             isHostInputVisible: false
         });
-        if(input) {
+        if (input) {
             ConnectionManager.setServers([
                 {
                     host: input,
                     port: "8080",
                     reConnect: true
                 }
-            ])  ;
-            ConnectionManager._connect();
+            ]);
+            this.connectWifi();
         }
 
     };
@@ -138,9 +145,54 @@ export default class App extends Component {
         };
     }
 
-    componentDidMount() {
+    _handleAppStateChange = (nextAppState) => {
+        if (
+            this.state.appState.match(/inactive|background/) &&
+            nextAppState === 'active'
+        ) {
 
-        ConnectionManager.start();
+            console.log('App has come to the foreground!');
+        } else if (this.state.appState === "background") {
+
+        }
+        this.setState({appState: nextAppState});
+    };
+
+    connectWifi = () => {
+        WifiManager.getCurrentWifiSSID().then(ssid => {
+                if (ssid !== WifiSSID) {
+                    WifiManager.connectToSSID(WifiSSID).then(() => {
+                        ConnectionManager.start();
+                    }, (err) => {
+                        alert(JSON.stringify(err))
+                    });
+                } else {
+                    ConnectionManager.start();
+                }
+            },
+            (err) => {
+                alert("Wifi Access Error!")
+            }
+        );
+    };
+
+    _disconnectWifi = () => {
+        WifiManager.getCurrentWifiSSID().then(ssid => {
+            if (ssid === WifiSSID) {
+                WifiManager.disconnectFromSSID(WifiSSID);
+            }
+        });
+    };
+
+    componentWillUnmount() {
+        AppState.removeEventListener('change', this._handleAppStateChange);
+    }
+
+    componentDidMount() {
+        AppState.addEventListener('change', this._handleAppStateChange);
+
+        this.connectWifi();
+
         ConnectionManager.on("statusChange", (status) => {
             this.updateChatter(status);
             if (this.lastStatusTimer) {
@@ -185,29 +237,25 @@ export default class App extends Component {
     }
 
     render() {
-        if(this.state.isHostInputVisible) {
+        if (this.state.isHostInputVisible) {
             Orientation.lockToPortrait();
         } else {
             Orientation.lockToLandscape();
         }
         return (
             <View style={[globalStyle.container, {
-                backgroundColor: this.state.status === "CONNECTED" ? "#444444" : "#222222"
+                backgroundColor: this.state.status === "CONNECTED" ? "#448833" : "#222222"
             }]}>
                 <View style={globalStyle.toolBar}>
-                    <TouchableOpacity onPressIn={() => {
-                        ConnectionManager.emitTimer("power", -0.15);
-                    }} onPressOut={() => {
-                        ConnectionManager.emitTimer("power", 0);
-                    }} style={globalStyle.powerButton}>
-                        <Image source={require("./images/gas-pedal.png")} resizeMode="contain"
-                               style={{width: 40}}/><Text style={globalStyle.buttonText}>İLERİ</Text>
-                    </TouchableOpacity>
                     <View>
-                        <TouchableOpacity
+                        {this.state.status === "CONNECTED" ? <TouchableOpacity
+                            style={[globalStyle.gyroButton, this.state.usePitch ? globalStyle.activeButton : {}]}
+                            onPress={this._disconnectWifi}><Text style={globalStyle.gyroButtonText}>DISCONNECT
+                            WIFI</Text>
+                        </TouchableOpacity> : <TouchableOpacity
                             style={[globalStyle.gyroButton, this.state.usePitch ? globalStyle.activeButton : {}]}
                             onPress={this._openHostInput}><Text style={globalStyle.gyroButtonText}>HOST
-                            SET</Text></TouchableOpacity>
+                            SET</Text></TouchableOpacity>}
                         <View style={globalStyle.gearButtons}>
                             {this.gears.map((item, key) => <TouchableOpacity key={key}
                                                                              style={[globalStyle.gearButton, this.state.gear === item ? globalStyle.activeButton : {}]}
@@ -216,16 +264,6 @@ export default class App extends Component {
                             </TouchableOpacity>)}
                         </View>
                     </View>
-
-                    <TouchableOpacity onPressIn={() => {
-                        ConnectionManager.emitTimer("power", "0.1");
-                    }} onPressOut={() => {
-                        ConnectionManager.emitTimer("power", 0);
-                    }}
-                                      style={globalStyle.powerButton}>
-                        <Text style={globalStyle.buttonText}>GERİ</Text>
-                        <Image source={require("./images/gas-pedal.png")} resizeMode="contain" style={{width: 40}}/>
-                    </TouchableOpacity>
                 </View>
                 <View style={globalStyle.controlContent}>
                     <AxisPad
@@ -233,10 +271,10 @@ export default class App extends Component {
                         backgroundSource={require("./images/joystick-bg-v.png")}
                         resetOnRelease={false}
                         autoCenter={true}
-                        lockX={true}
                         handlerStyle={{backgroundColor: "#ffffffaa"}}
                         onValue={({y, x}) => {
-                            ConnectionManager.emitTimer("power", y / (this.gears.length - this.state.gear + 1));
+                            ConnectionManager.emitTimer("throttle", pwmVal(y));
+                            ConnectionManager.emitTimer("rudder", pwmVal(x));
                         }}/>
                     <AxisPad
                         size={220}
@@ -245,8 +283,8 @@ export default class App extends Component {
                         handlerStyle={{backgroundColor: "#ffffffaa"}}
                         autoCenter={true}
                         onValue={({x, y}) => {
-                            ConnectionManager.emitTimer("elevationDirection", y);
-                            ConnectionManager.emitTimer("driveDirection", x);
+                            ConnectionManager.emitTimer("elevator", pwmVal(y));
+                            ConnectionManager.emitTimer("aileron", pwmVal(x));
                         }}/>
                 </View>
                 <View style={globalStyle.statusBar}>

@@ -12,7 +12,8 @@ export default globalStyle = StyleSheet.create({
     height: 80,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%'
+    marginLeft: "auto",
+    marginRight: "auto",
   },
   statusBar: {
     height: 80,
@@ -90,6 +91,8 @@ export default globalStyle = StyleSheet.create({
     color: "#ffffff"
   },
   logScroll: {
+    marginLeft: "auto",
+    marginRight: "auto",
     flexDirection: "column-reverse"
   },
   logText: {
